@@ -1713,6 +1713,9 @@ def VertexOnlyMesh(mesh, vertexcoords, comm=COMM_WORLD):
     if pdim != tdim:
         raise ValueError(f"Mesh topological dimension {tdim} must match point list dimension {pdim}")
 
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Extruded meshes are not supported")
+
     if mesh.coordinates.function_space().ufl_element().degree() > 1:
         raise NotImplementedError("Only straight edged meshes are supported")
 
