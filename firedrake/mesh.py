@@ -1769,6 +1769,12 @@ def _pic_swarm_in_plex(plex, coords, **kwargs):
         the particles.
     :kwarg comm: Optional communicator to build the mesh on
         (defaults to match `plex` communicator).
+    :kwarg fieldnames: An optional list of field names for fields to
+        register on the swarm.
+    :kwarg blocksizes: An optional list of blocksizes for fields to
+        register on the swarm. If specfied must bo of equal length to
+        `fieldnames`. If not specified, defaults to 1 for all specified
+        `fieldnames`.
     :return: the immersed DMSwarm
     """
 
@@ -1804,11 +1810,14 @@ def _pic_swarm_in_plex(plex, coords, **kwargs):
     # Set to Particle In Cell (PIC) type
     swarm.setType(PETSc.DMSwarm.Type.PIC)
 
-    # Setup particle information as though there is a field associated
-    # with the point coordinates, but don't actually register any fields.
-    # An example of setting a field is left for reference.
-    # blocksize = 1
-    # swarm.registerField("somefield", blocksize)
+    # Register any fields
+    fieldnames = kwargs.get("fieldnames", [])
+    blocksizes = kwargs.get("blocksizes", np.ones(len(fieldnames)))
+    if len(fieldnames) > 0:
+        if len(fieldnames) != len(blocksizes):
+            raise ValueError("The blocksizes list must be the same length as the fieldnames list")
+        for i in range(len(fieldnames)):
+            swarm.registerField(fieldnames[i], blocksizes[i])
     swarm.finalizeFieldRegister()
 
     # Note that no new fields can now be associated with the DMSWARM.

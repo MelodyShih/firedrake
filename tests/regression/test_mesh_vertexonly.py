@@ -68,7 +68,9 @@ def test_pic_swarm_in_plex(parentmesh):
     parentmesh.init()
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     plex = parentmesh.topology._plex
-    swarm = mesh._pic_swarm_in_plex(plex, inputpointcoords)
+    fieldnames = ["fieldA", "fieldB"]
+    blocksizes = [1, 1]
+    swarm = mesh._pic_swarm_in_plex(plex, inputpointcoords, fieldnames=fieldnames, blocksizes=blocksizes)
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -85,6 +87,10 @@ def test_pic_swarm_in_plex(parentmesh):
 
     # Tests
 
+    # get custom fields on swarm - will fail if didn't get created
+    for fieldname in fieldnames:
+        swarm.getField(fieldname)
+        swarm.restoreField(fieldname)
     # Check comm sizes match
     assert plex.comm.size == swarm.comm.size
     # Check coordinate list and parent cell indices match
