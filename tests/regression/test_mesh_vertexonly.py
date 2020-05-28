@@ -302,7 +302,6 @@ def vectorfunctionspace_tests(vm, family, degree):
 """Families and degrees to test function spaces on VertexOnlyMesh"""
 families_and_degrees = [
     ("DG", 0),
-    pytest.param("DG", 1, marks=pytest.mark.xfail(reason="unsupported degree")),
     pytest.param("CG", 1, marks=pytest.mark.xfail(reason="unsupported family and degree"))
 ]
 
