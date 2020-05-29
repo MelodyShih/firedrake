@@ -26,8 +26,9 @@ def mark_entity_classes(PETSc.DM swarm):
     owned  : owned and in send halo
     ghost  : in halo
 
-    Note that this is a copy and paste job from the equivalent function
-    in dmplex.pyx with the relevant modifications made for a DMSwarm.
+    ..note:: this is a copy and paste job from the equivalent function
+             in dmplex.pyx with the relevant modifications made for a
+             DMSwarm.
 
     :arg swarm: The DMSwarm object encapsulating the mesh topology
     """
@@ -82,8 +83,9 @@ def mark_entity_classes(PETSc.DM swarm):
 def get_entity_classes(PETSc.DM swarm):
     """Builds PyOP2 entity class offsets for all entity levels.
 
-    Note that this is a copy and paste job from the equivalent function
-    in dmplex.pyx with the relevant modifications made for a DMSwarm.
+    ..note:: This is a copy and paste job from the equivalent function
+             in dmplex.pyx with the relevant modifications made for a
+             DMSwarm.
 
     :arg swarm: The DMSwarm object encapsulating the mesh topology
     """
@@ -127,8 +129,9 @@ def get_entity_classes(PETSc.DM swarm):
 def create_section(mesh, nodes_per_entity, on_base=False):
     """Create the section describing a global numbering.
 
-    Note that this is a copy and paste job from the equivalent function
-    in dmplex.pyx with the relevant modifications made for a DMSwarm.
+    ..note:: This is a copy and paste job from the equivalent function
+             in dmplex.pyx with the relevant modifications made for a
+             DMSwarm.
 
     :arg mesh: The mesh.
     :arg nodes_per_entity: Number of nodes on each type of topological
@@ -197,8 +200,9 @@ def closure_ordering(PETSc.DM swarm,
                      np.ndarray[PetscInt, ndim=1, mode="c"] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
 
-    Note that this is a copy and paste job from the equivalent function
-    in dmplex.pyx with the relevant modifications made for a DMSwarm.
+    ..note:: This is a copy and paste job from the equivalent function
+             in dmplex.pyx with the relevant modifications made for a
+             DMSwarm.
 
     :arg swarm: The DMSwarm object encapsulating the vertex-only mesh topology
     :arg vertex_numbering: Section describing the universal vertex numbering
@@ -277,8 +281,9 @@ def get_cell_nodes(mesh,
     """
     Builds the DoF mapping.
 
-    Note that this is a copy and paste job from the equivalent function
-    in dmplex.pyx with the relevant modifications made for a DMSwarm.
+    ..note:: This is a copy and paste job from the equivalent function
+             in dmplex.pyx with the relevant modifications made for a
+             DMSwarm.
 
     :arg mesh: The mesh
     :arg global_numbering: Section describing the global DoF numbering
@@ -367,8 +372,9 @@ def reordered_coords(PETSc.DM swarm, PETSc.Section global_numbering, shape):
     """Return coordinates for the swarm, reordered according to the
     global numbering permutation for the coordinate function space.
 
-    Note that this is a copy and paste job from the equivalent function
-    in dmplex.pyx with the relevant modifications made for a DMSwarm.
+    ..note:: This is a copy and paste job from the equivalent function
+             in dmplex.pyx with the relevant modifications made for a
+             DMSwarm.
 
     Shape is a tuple of (mesh.num_vertices(), geometric_dim)."""
     cdef:
