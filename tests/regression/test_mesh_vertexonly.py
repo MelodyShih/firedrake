@@ -155,8 +155,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, gdim):
     in_bounds = []
     core, owned, ghost = m.cell_set.sizes
     for i in range(len(inputvertexcoords)):
-        cell_id = m.locate_cell(inputvertexcoords[i])
-        if cell_id is not None and cell_id < owned:
+        cell_num = m.locate_cell(inputvertexcoords[i])
+        if cell_num is not None and cell_num < owned:
             in_bounds.append(i)
     # Correct coordinates (though not guaranteed to be in same order)
     assert np.shape(vm.coordinates.dat.data_ro) == np.shape(inputvertexcoords[in_bounds])
@@ -191,11 +191,11 @@ def test_generate_cell_midpoints(parentmesh):
     out_of_mesh_point.fill(np.inf)
     for i in range(max_len):
         if i < len(vm.coordinates.dat.data_ro):
-            cell_id = parentmesh.locate_cell(vm.coordinates.dat.data_ro[i])
+            cell_num = parentmesh.locate_cell(vm.coordinates.dat.data_ro[i])
         else:
-            cell_id = parentmesh.locate_cell(out_of_mesh_point)  # should return None
-        if cell_id is not None:
-            assert all(f.dat.data_ro[cell_id] == vm.coordinates.dat.data_ro[i])
+            cell_num = parentmesh.locate_cell(out_of_mesh_point)  # should return None
+        if cell_num is not None:
+            assert all(f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i])
 
 
 @pytest.mark.parallel
