@@ -1759,9 +1759,6 @@ def _pic_swarm_in_plex(plex, coords, **kwargs):
     Create a Particle In Cell (PIC) DMSwarm, immersed in a DMPlex
     at given point coordinates.
 
-    Note that, at present, no fields are associated with the DMSwarm
-    particles.
-
     This should only by used for dmplexes associated with meshes with
     straight edges. If not, the particles may be placed in the wrong
     cells.
