@@ -56,7 +56,7 @@ def random_coords(n, gdim):
     by `gdim`.
     """
     a, b = -0.5, 1.5
-    return (b - a) * np.random.random_sample(size=(10, gdim)) + a
+    return (b - a) * np.random.random_sample(size=(n, gdim)) + a
 
 
 # pic swarm tests
