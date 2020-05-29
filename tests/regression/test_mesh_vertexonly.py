@@ -163,7 +163,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, gdim):
     assert np.all(np.isin(inputvertexcoords[in_bounds], vm.coordinates.dat.data_ro))
     # Correct parent topology
     assert vm._parent_mesh is m.topology
-    # Check other properties
+    # Correct generic cell properties
     assert np.shape(vm.cell_closure) == (len(inputvertexcoords[in_bounds]), 1)
     with pytest.raises(AttributeError):
         vm.cell_to_facets
@@ -172,6 +172,14 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, gdim):
     assert vm.num_faces() == vm.num_entities(2) == 0
     assert vm.num_edges() == vm.num_entities(1) == 0
     assert vm.num_vertices() == vm.num_entities(0) == vm.num_cells()
+    # Correct parent cell numbers
+    stored_vertex_coords = np.copy(vm._swarm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))
+    vm._swarm.restoreField("DMSwarmPIC_coor")
+    stored_parent_cell_nums = np.copy(vm._swarm.getField("parentcellnum"))
+    vm._swarm.restoreField("parentcellnum")
+    assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
+    for i in range(len(stored_vertex_coords)):
+        assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
 
 
 @pytest.mark.parametrize("parentmesh", parentmeshes)
