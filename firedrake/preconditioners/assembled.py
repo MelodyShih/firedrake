@@ -80,8 +80,16 @@ class AssembledPC(PCBase):
         from firedrake.solving_utils import _SNESContext
         dm = opc.getDM()
         octx = get_appctx(dm)
+
+        # Call post jacobian callback so that user can modify the operator
+        from firedrake.mg.utils import get_level
+        if octx._post_jacobian_callback is not None:
+            _, level = get_level(octx._x.ufl_domain())
+            octx._post_jacobian_callback(octx._x.dat.vec_wo, Pmat, level)
+
         oproblem = octx._problem
-        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
+        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs,\
+                                             J=a, form_compiler_parameters=fcp)
         self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
 
         pc.setDM(dm)
