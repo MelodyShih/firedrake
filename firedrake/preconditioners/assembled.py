@@ -88,9 +88,8 @@ class AssembledPC(PCBase):
             octx._post_jacobian_callback(octx._x.dat.vec_wo, Pmat, level)
 
         oproblem = octx._problem
-        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs,\
-                                             J=a, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx)
+        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
+        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)

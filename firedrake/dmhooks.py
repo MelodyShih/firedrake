@@ -260,7 +260,7 @@ pop_appctx = partial(pop_attr, "__appctx__")
 get_appctx = partial(get_attr, "__appctx__")
 
 
-def get_transfer_operators(dm):
+def get_transfer_manager(dm):
     appctx = get_appctx(dm)
     if appctx is None:
         # We're not in a solve, so all we can do is make a new one (not cached)
@@ -269,7 +269,7 @@ def get_transfer_operators(dm):
         firedrake.warning("This might be slow (you probably want to save it on an appctx)")
     else:
         transfer = appctx.transfer_manager
-    return (transfer.prolong, transfer.restrict, transfer.inject)
+    return transfer
 
 
 push_ctx_coarsener = partial(push_attr, "__ctx_coarsener__")
@@ -429,6 +429,7 @@ def coarsen(dm, comm):
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
         # Necessary for MG inside a fieldsplit in a SNES.
+        dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
     return cdm
 

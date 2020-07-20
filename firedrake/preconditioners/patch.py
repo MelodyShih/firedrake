@@ -5,6 +5,8 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
+from firedrake.functionspace import FunctionSpace
+from firedrake.interpolation import interpolate
 
 from collections import namedtuple
 import operator
@@ -13,6 +15,7 @@ from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
 from tsfc.kernel_interface.firedrake_loopy import make_builder
+import weakref
 
 import ctypes
 from pyop2 import op2
@@ -457,7 +460,7 @@ PetscErrorCode ComputeJacobian(PC pc,
 """.format(struct_decl, pyop2_call), struct
 
 
-def load_c_function(code, name):
+def load_c_function(code, name, comm):
     cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
@@ -466,7 +469,8 @@ def load_c_function(code, name):
                 argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
                           ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
                           ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs)
+                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
+                comm=comm)
 
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
@@ -566,18 +570,45 @@ def select_entity(p, dm=None, exclude=None):
 
 class PlaneSmoother(object):
     @staticmethod
-    def coords(dm, p):
-        coordsSection = dm.getCoordinateSection()
-        coordsDM = dm.getCoordinateDM()
-        dim = coordsDM.getDimension()
-        coordsVec = dm.getCoordinatesLocal()
-        return dm.getVecClosure(coordsSection, coordsVec, p).reshape(-1, dim).mean(axis=0)
+    def coords(dm, p, coordinates):
+        coordinatesV = coordinates.function_space()
+        data = coordinates.dat.data_ro_with_halos
+        coordinatesDM = coordinatesV.dm
+        coordinatesSection = coordinatesDM.getDefaultSection()
+
+        closure_of_p = [x for x in dm.getTransitiveClosure(p, useCone=True)[0] if coordinatesSection.getDof(x) > 0]
+
+        gdim = data.shape[1]
+        bary = numpy.zeros(gdim)
+        for p_ in closure_of_p:
+            (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
+            bary += data[offset:offset+dof].reshape(gdim)
+        bary /= len(closure_of_p)
+        return bary
 
     def sort_entities(self, dm, axis, dir, ndiv):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+
+        mesh = dm.getAttr("__firedrake_mesh__")
+        ele = mesh.coordinates.function_space().ufl_element()
+        V = mesh.coordinates.function_space()
+        if V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs():
+            # We're using DG or DQ for our coordinates, so we got
+            # a periodic mesh. We need to interpolate to CGk
+            # with access descriptor MAX to define a consistent opinion
+            # about where the vertices are.
+            CGkele = ele.reconstruct(family="Lagrange")
+            # Need to supply the actual mesh to the FunctionSpace constructor,
+            # not its weakref proxy (the variable `mesh`)
+            # as interpolation fails because they are not hashable
+            CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
+            coordinates = interpolate(mesh.coordinates, CGk, access=op2.MAX)
+        else:
+            coordinates = mesh.coordinates
+
         select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
-        entities = [(p, self.coords(dm, p)) for p in
+        entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
         minx = min(entities, key=lambda z: z[1][axis])[1][axis]
@@ -656,7 +687,12 @@ class PatchBase(PCSNESBase):
             bcs = ctx._problem.bcs
 
         mesh = J.ufl_domain()
-        self.plex = mesh._plex
+        self.plex = mesh._topology_dm
+        # We need to attach the mesh to the plex, so that
+        # PlaneSmoothers (and any other user-customised patch
+        # constructors) can use firedrake's opinion of what
+        # the coordinates are, rather than plex's.
+        self.plex.setAttr("__firedrake_mesh__", weakref.proxy(mesh))
         self.ctx = ctx
 
         if mesh.cell_set._extruded:
@@ -697,7 +733,7 @@ class PatchBase(PCSNESBase):
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
         code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
-        Jop_function = load_c_function(code, "ComputeJacobian")
+        Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
         Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
 
         Jhas_int_facet_kernel = False
@@ -708,7 +744,7 @@ class PatchBase(PCSNESBase):
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
-            facet_Jop_function = load_c_function(code, "ComputeJacobian")
+            facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
             point2facet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
@@ -727,7 +763,7 @@ class PatchBase(PCSNESBase):
                                                            require_state=True)
 
             code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
-            Fop_function = load_c_function(code, "ComputeResidual")
+            Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
             Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
 
             Fhas_int_facet_kernel = False
@@ -740,7 +776,7 @@ class PatchBase(PCSNESBase):
                                                                            require_state=True,
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
-                facet_Fop_function = load_c_function(code, "ComputeResidual")
+                facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
                 point2facet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,
@@ -781,6 +817,14 @@ class PatchBase(PCSNESBase):
         patch.setFromOptions()
         patch.setUp()
         self.patch = patch
+
+    def destroy(self, obj):
+        # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
+        d = self.plex.getDict()
+        try:
+            del d["__firedrake_mesh__"]
+        except KeyError:
+            pass
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()

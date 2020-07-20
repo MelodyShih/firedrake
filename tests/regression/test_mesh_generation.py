@@ -45,6 +45,10 @@ def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
 
+def test_unit_disk():
+    assert abs(integrate_one(UnitDiskMesh(5)) - np.pi) < 1e-3
+
+
 def test_rectangle():
     assert abs(integrate_one(RectangleMesh(3, 3, 10, 2)) - 20) < 1e-3
 
@@ -417,3 +421,11 @@ def test_changing_default_reorder_works(reorder):
         assert m._did_reordering == reorder
     finally:
         parameters["reorder_meshes"] = old_reorder
+
+
+@pytest.mark.parametrize("kind, num_cells",
+                         [("default", 6), ("crossed", 5)])
+def test_boxmesh_kind(kind, num_cells):
+    m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
+    m.init()
+    assert m.num_cells() == num_cells
