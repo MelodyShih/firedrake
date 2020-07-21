@@ -290,9 +290,14 @@ class _SNESContext(object):
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
-            splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
-                                     appctx=self.appctx,
-                                     transfer_manager=self.transfer_manager))
+            splits.append(type(self)(new_problem, mat_type=self.mat_type, 
+                pmat_type=self.pmat_type,
+                appctx=self.appctx,
+                pre_jacobian_callback=self._pre_jacobian_callback, 
+                pre_function_callback=self._pre_function_callback,
+                post_jacobian_callback=self._post_jacobian_callback, 
+                post_function_callback=self._post_function_callback,
+                transfer_manager=self.transfer_manager))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
@@ -397,6 +402,10 @@ class _SNESContext(object):
                     bc.apply(ctx._x)
 
         ctx._assemble_jac()
+        from firedrake.mg.utils import get_level
+        if ctx._post_jacobian_callback is not None:
+            _, level = get_level(ctx._x.ufl_domain())
+            ctx._post_jacobian_callback(_, J, level)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
