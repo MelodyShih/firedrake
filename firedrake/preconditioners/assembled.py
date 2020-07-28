@@ -87,10 +87,8 @@ class AssembledPC(PCBase):
         octx = get_appctx(dm)
 
         # Call post jacobian callback so that user can modify the operator
-        from firedrake.mg.utils import get_level
         if octx._post_jacobian_callback is not None:
-            _, level = get_level(octx._x.ufl_domain())
-            octx._post_jacobian_callback(_, Pmat, level)
+            octx._post_jacobian_callback(None, Pmat, octx)
 
         oproblem = octx._problem
         nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)

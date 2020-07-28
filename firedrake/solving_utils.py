@@ -463,10 +463,8 @@ class _SNESContext(object):
 
         ctx._assemble_jac()
 
-        from firedrake.mg.utils import get_level
         if ctx._post_jacobian_callback is not None:
-            _, level = get_level(ctx._x.ufl_domain())
-            ctx._post_jacobian_callback(X, J, level)
+            ctx._post_jacobian_callback(X, J, ctx)
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
@@ -506,10 +504,8 @@ class _SNESContext(object):
                     bc.apply(ctx._x)
 
         ctx._assemble_jac()
-        from firedrake.mg.utils import get_level
         if ctx._post_jacobian_callback is not None:
-            _, level = get_level(ctx._x.ufl_domain())
-            ctx._post_jacobian_callback(_, J, level)
+            ctx._post_jacobian_callback(None, J, ctx)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac()
