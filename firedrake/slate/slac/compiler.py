@@ -18,7 +18,6 @@ from coffee import base as ast
 
 import time
 from hashlib import md5
-import os.path
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
@@ -27,7 +26,8 @@ from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loo
 from firedrake import op2
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.utils import ScalarType_c
+from firedrake.petsc import get_petsc_variables
+from firedrake.utils import complex_mode, ScalarType_c, as_cstr
 from ufl.log import GREEN
 from gem.utils import groupby
 from gem import impero_utils
@@ -35,7 +35,6 @@ from gem import impero_utils
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2.datatypes import as_cstr
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import solve_fn_lookup, inv_fn_lookup
 
@@ -56,16 +55,25 @@ except ValueError:
     PETSC_ARCH = None
 
 EIGEN_INCLUDE_DIR = None
-if COMM_WORLD.rank == 0:
-    filepath = os.path.join(PETSC_ARCH or PETSC_DIR, "lib", "petsc", "conf", "petscvariables")
-    with open(filepath) as file:
-        for line in file:
-            if line.find("EIGEN_INCLUDE") == 0:
-                EIGEN_INCLUDE_DIR = line[18:].rstrip()
-                break
-    if EIGEN_INCLUDE_DIR is None:
-        raise ValueError(""" Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
-EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+BLASLAPACK_LIB = None
+BLASLAPACK_INCLUDE = None
+if not complex_mode:
+    if COMM_WORLD.rank == 0:
+        petsc_variables = get_petsc_variables()
+        EIGEN_INCLUDE_DIR = petsc_variables.get("EIGEN_INCLUDE")
+        if EIGEN_INCLUDE_DIR is None:
+            raise ValueError("""Could not find Eigen configuration in %s. Did you build PETSc with Eigen?""" % PETSC_ARCH or PETSC_DIR)
+        EIGEN_INCLUDE_DIR = EIGEN_INCLUDE_DIR.lstrip('-I')
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(EIGEN_INCLUDE_DIR, root=0)
+
+        BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
+        BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
+        BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
+        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
+    else:
+        EIGEN_INCLUDE_DIR = COMM_WORLD.bcast(None, root=0)
+        BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
+        BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -97,14 +105,18 @@ def compile_expression(slate_expr, tsfc_parameters=None, coffee=False):
 
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
+    if complex_mode:
+        raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
     cache = slate_expr._metakernel_cache
-    if tsfc_parameters is None:
-        tsfc_parameters = parameters["form_compiler"]
+    params = parameters["form_compiler"].copy()
+    if tsfc_parameters is not None:
+        params.update(tsfc_parameters)
+    tsfc_parameters = params
     key = str(sorted(tsfc_parameters.items()))
     try:
         return cache[key]
@@ -143,19 +155,25 @@ def generate_loopy_kernel(slate_expr, tsfc_parameters=None):
     # Create a loopy builder for the Slate expression,
     # e.g. contains the loopy kernels coming from TSFC
     gem_expr, var2terminal = slate_to_gem(slate_expr)
-    slate_loopy = gem_to_loopy(gem_expr)
+
+    scalar_type = tsfc_parameters["scalar_type"]
+    slate_loopy, output_arg = gem_to_loopy(gem_expr, var2terminal, scalar_type)
+
     builder = LocalLoopyKernelBuilder(expression=slate_expr,
                                       tsfc_parameters=tsfc_parameters)
-    loopy_merged = merge_loopy(slate_loopy, builder, var2terminal)
 
+    loopy_merged = merge_loopy(slate_loopy, output_arg, builder, var2terminal)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, inv_fn_lookup)
     loopy_merged = loopy.register_function_id_to_in_knl_callable_mapper(loopy_merged, solve_fn_lookup)
 
     # WORKAROUND: Generate code directly from the loopy kernel here,
     # then attach code as a c-string to the op2kernel
     code = loopy.generate_code_v2(loopy_merged).device_code()
-    code.replace('void slate_kernel', 'static void slate_kernel')
-    loopykernel = op2.Kernel(code, loopy_merged.name, ldargs=["-llapack"])
+    code = code.replace(f'void {loopy_merged.name}', f'static void {loopy_merged.name}')
+    loopykernel = op2.Kernel(code,
+                             loopy_merged.name,
+                             include_dirs=BLASLAPACK_INCLUDE.split(),
+                             ldargs=BLASLAPACK_LIB.split())
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
@@ -602,16 +620,19 @@ def parenthesize(arg, prec=None, parent=None):
     return "(%s)" % arg
 
 
-def gem_to_loopy(gem_expr):
+def gem_to_loopy(gem_expr, var2terminal, scalar_type):
     """ Method encapsulating stage 2.
     Converts the gem expression dag into imperoc first, and then further into loopy.
-    :return slate_loopy: loopy kernel for slate operations.
+    :return slate_loopy: 2-tuple of loopy kernel for slate operations
+        and loopy GlobalArg for the output variable.
     """
     # Creation of return variables for outer loopy
     shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
-    arg = [loopy.GlobalArg("output", shape=shape)]
+    args = ([loopy.GlobalArg("output", shape=shape, dtype=scalar_type)]
+            + [loopy.GlobalArg(var.name, shape=var.shape, dtype=scalar_type)
+               for var in var2terminal.keys()])
     ret_vars = [gem.Indexed(gem.Variable("output", shape), idx)]
 
     preprocessed_gem_expr = impero_utils.preprocess_gem([indexed_gem_expr])
@@ -623,7 +644,7 @@ def gem_to_loopy(gem_expr):
     impero_c = impero_utils.compile_gem(assignments, (), remove_zeros=False)
 
     # Part B: impero_c to loopy
-    return generate_loopy(impero_c, arg, parameters["form_compiler"]["scalar_type"], "slate_loopy", [])
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), args[0].copy()
 
 
 def slate_to_cpp(expr, temps, prec=None):
