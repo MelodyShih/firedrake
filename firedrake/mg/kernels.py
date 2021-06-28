@@ -397,12 +397,13 @@ def inject_kernel(Vf, Vc):
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
-    try:
-        return cache[key]
-    except KeyError:
+    #try:
+    #    return cache[key]
+    #except KeyError:
+    if True:
         ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+        #if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
+        #    return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
         coordinates = Vf.ufl_domain().coordinates
         evaluate_kernel = compile_element(ufl.Coefficient(Vf))
